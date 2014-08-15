@@ -36,6 +36,7 @@ shrink_t opt_level;
 bool opt_quiet;
 bool opt_force;
 bool opt_crc;
+string opt_ext = "";
 
 bool reduce_image(unsigned char** out_ptr, unsigned* out_scanline, unsigned char* pal_ptr, unsigned* pal_count, unsigned char* palrns_ptr, unsigned *palrns_count, unsigned width, unsigned height, unsigned char* img_ptr, unsigned img_scanline, const unsigned char* rns_ptr, unsigned rns_size)
 {
@@ -170,7 +171,7 @@ void convert_f(adv_fz* f_in, adv_fz* f_out)
 	free(rns_ptr);
 }
 
-void convert_inplace(const string& path)
+string convert(const string& path, bool inplace)
 {
 	adv_fz* f_in;
 	adv_fz* f_out;
@@ -206,7 +207,7 @@ void convert_inplace(const string& path)
 		// delete the new file
 		remove(path_dst.c_str());
 		throw error_unsupported() << "Bigger " << dst_size;
-	} else {
+	} else if(inplace) {
 		// prevent external signal
 		sig_auto_lock sal;
 
@@ -220,6 +221,17 @@ void convert_inplace(const string& path)
 		if (::rename(path_dst.c_str(), path.c_str()) != 0) {
 			throw error() << "Failed rename of " << path_dst << " to " << path;
 		}
+
+		return path;
+	} else {
+		size_t dot_pos = path.find_last_of('.');
+		string path_target = path;
+		path_target.insert(dot_pos, opt_ext);
+		if (::rename(path_dst.c_str(), path_target.c_str()) != 0) {
+			throw error() << "Failed rename of " << path_dst << " to " << path;
+		}
+
+		return path_target;
 	}
 }
 
@@ -278,14 +290,16 @@ void rezip_single(const string& file, unsigned long long& total_0, unsigned long
 
 	try {
 		size_0 = file_size(file);
+		string result_file = file;
 
 		try {
-			convert_inplace(file);
+			bool inplace = opt_ext.length() > 0 ? false : true;
+			result_file = convert(file, inplace);
 		} catch (error_unsupported& e) {
 			desc = e.desc_get();
 		}
 
-		size_1 = file_size(file);
+		size_1 = file_size(result_file);
 	} catch (error& e) {
 		throw e << " on " << file;
 	}
@@ -349,6 +363,7 @@ struct option long_options[] = {
 	{"shrink-extra", 0, 0, '3'},
 	{"shrink-insane", 0, 0, '4'},
 	{"iter", 1, 0, 'i'},
+	{"ext", 1, 0, 'e'},
 
 	{"quiet", 0, 0, 'q'},
 	{"help", 0, 0, 'h'},
@@ -357,7 +372,7 @@ struct option long_options[] = {
 };
 #endif
 
-#define OPTIONS "zlL01234i:fqhV"
+#define OPTIONS "zlL01234i:e:fqhV"
 
 void version()
 {
@@ -380,6 +395,7 @@ void usage()
 	cout << "  " SWITCH_GETOPT_LONG("-3, --shrink-extra  ", "-3") "  Compress extra (7z)" << endl;
 	cout << "  " SWITCH_GETOPT_LONG("-4, --shrink-insane ", "-4") "  Compress extreme (zopfli)" << endl;
 	cout << "  " SWITCH_GETOPT_LONG("-i N, --iter=N      ", "-i") "  Compress iterations" << endl;
+	cout << "  " SWITCH_GETOPT_LONG("-e, --ext           ", "-e") "  Specify the extension for compressed files. If not specified, input files will be overwritten." << endl;
 	cout << "  " SWITCH_GETOPT_LONG("-f, --force         ", "-f") "  Force the new file also if it's bigger" << endl;
 	cout << "  " SWITCH_GETOPT_LONG("-q, --quiet         ", "-q") "  Don't print on the console" << endl;
 	cout << "  " SWITCH_GETOPT_LONG("-h, --help          ", "-h") "  Help of the program" << endl;
@@ -455,6 +471,9 @@ void process(int argc, char* argv[])
 			break;
 		case 'q' :
 			opt_quiet = true;
+			break;
+		case 'e' :
+			opt_ext = optarg;
 			break;
 		case 'h' :
 			usage();
